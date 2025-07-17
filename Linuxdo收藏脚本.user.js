@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Linux.do 超级收藏夹 (专业重构版)
+// @name         Linux.do 超级收藏夹 (v5.0 标签版)
 // @namespace    http://tampermonkey.net/
-// @version      4.0
-// @description  [UX & Code Quality Refactor] 引入撤销删除、无刷新编辑、非阻塞收藏等流畅体验。代码采用常量和模板进行重构，可维护性大幅提升。
+// @version      5.0
+// @description  [Major Feature] 新增标签系统！自动从标题提取标签，支持按标签筛选。UI全面升级，功能更强大。
 // @author       Bin & Gemini & CHAI & 高级编程助手
 // @match        https://linux.do/*
 // @grant        GM_setValue
@@ -32,6 +32,7 @@
       TABLE_CONTAINER: "bookmarks-table-container",
       TABLE: "bookmarks-table",
       ROW_TEMPLATE: "bm-row-template",
+      TAG_FILTER_CONTAINER: "bm-tag-filter-container", // [NEW]
       WEBDAV_TEST_RESULT: "webdav-test-result",
       AUTO_SYNC_TOGGLE: "auto-sync-toggle",
       WEBDAV_BROWSER_LIST: "webdav-browser-list",
@@ -50,12 +51,17 @@
       MODAL_BACKDROP: "bm-modal-backdrop",
       CLOSE_BTN: "bm-close-btn",
       CONTENT_PANEL: "bm-content-panel",
-      ROW_HIDING: "bm-row-hiding", // [NEW] 用于删除动画
+      ROW_HIDING: "bm-row-hiding",
+      TAG_FILTER_BTN: "bm-tag-filter-btn", // [NEW]
+      TAG_ACTIVE: "active", // [NEW]
+      TAG_CELL: "bm-tag-cell", // [NEW]
+      TAG_PILL: "bm-tag-pill", // [NEW]
     },
     WEBDAV_DIR: "LinuxDoBookmarks/",
   };
 
   let undoState = { item: null, index: -1, timeoutId: null };
+  let activeTagFilter = null; // [NEW] 用于存储当前激活的标签过滤器
 
   // --- Part 1: 定义样式和 HTML ---
   GM_addStyle(`
@@ -65,13 +71,13 @@
         .bm-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #EAEAEA; padding-bottom: 15px; margin-bottom: 20px; flex-shrink: 0; }
         .bm-header h2 { margin: 0; font-size: 22px; color: #333; }
         .bm-close-btn { color: #999; font-size: 32px; font-weight: bold; cursor: pointer; line-height: 1; transition: color 0.2s; margin-left: auto; }
-        .controls-container { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 10px; flex-shrink: 0; }
+        .controls-container { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px; flex-shrink: 0; }
         #${CONSTANTS.IDS.SEARCH_INPUT} { flex: 1 1 300px; padding: 10px 15px; font-size: 16px; border-radius: 6px; border: 1px solid #DDD; box-sizing: border-box; }
         .controls-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-        #${CONSTANTS.IDS.TABLE_CONTAINER} { min-height: 300px; max-height: 65vh; overflow-y: auto; flex-grow: 1; }
+        #${CONSTANTS.IDS.TABLE_CONTAINER} { min-height: 300px; max-height: 60vh; overflow-y: auto; flex-grow: 1; }
         #${CONSTANTS.IDS.TABLE} { width: 100%; border-collapse: collapse; }
         #${CONSTANTS.IDS.TABLE} th { position: sticky; top: 0; z-index: 1; background-color: #F9F9F9; padding: 12px 8px; text-align: left; border-bottom: 1px solid #EAEAEA;}
-        #${CONSTANTS.IDS.TABLE} td { border-bottom: 1px solid #EAEAEA; padding: 12px 8px; text-align: left; transition: background-color 0.3s; }
+        #${CONSTANTS.IDS.TABLE} td { border-bottom: 1px solid #EAEAEA; padding: 12px 8px; text-align: left; transition: background-color 0.3s; vertical-align: middle; }
         #${CONSTANTS.IDS.TABLE} td a { color: #007AFF; text-decoration: none; word-break: break-all; }
         .bm-btn { border: 1px solid #CCC; background-color: #FFF; color: #333; padding: 6px 12px; border-radius: 5px; cursor: pointer; font-size: 14px; transition: all 0.2s; white-space: nowrap; }
         .bm-btn-io { border-color: #81C784; color: #2E7D32; }
@@ -101,19 +107,24 @@
         #${CONSTANTS.IDS.MANAGE_BUTTON} { right: 20px; bottom: 30px; }
         .${CONSTANTS.CLASSES.ROW_HIDING} { opacity: 0; transform: scale(0.95); }
         #${CONSTANTS.IDS.TABLE} tr { transition: opacity 0.3s ease, transform 0.3s ease; }
+        /* [NEW] Tag Styles */
+        #${CONSTANTS.IDS.TAG_FILTER_CONTAINER} { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #EAEAEA; }
+        .${CONSTANTS.CLASSES.TAG_FILTER_BTN} { border: 1px solid #DDD; background-color: #FAFAFA; color: #555; padding: 5px 10px; border-radius: 15px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .${CONSTANTS.CLASSES.TAG_FILTER_BTN}.${CONSTANTS.CLASSES.TAG_ACTIVE} { background-color: #007AFF; color: white; border-color: #007AFF; }
+        .${CONSTANTS.CLASSES.TAG_PILL} { display: inline-block; background-color: #EFEFEF; color: #555; padding: 3px 8px; border-radius: 10px; font-size: 12px; margin-right: 5px; margin-bottom: 5px; }
     `);
 
   document.body.insertAdjacentHTML(
     "beforeend",
     `
-        <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称或链接..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
+        <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>WebDAV 云同步设置</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}">×</span></div> <div class="webdav-form-group"><label for="webdav-server">服务器地址:</label><input type="text" id="webdav-server" class="webdav-input" placeholder="例如: https://dav.jianguoyun.com/dav/"></div> <div class="webdav-form-group"><label for="webdav-user">用户名:</label><input type="text" id="webdav-user" class="webdav-input"></div> <div class="webdav-form-group"><label for="webdav-pass">应用密码 (非登录密码):</label><input type="password" id="webdav-pass" class="webdav-input"></div> <div class="webdav-form-group"><label><input type="checkbox" id="${CONSTANTS.IDS.AUTO_SYNC_TOGGLE}">当收藏变化时自动备份</label></div> <div class="webdav-footer"> <div id="${CONSTANTS.IDS.WEBDAV_TEST_RESULT}"></div> <div class="webdav-footer-buttons"><button id="test-webdav-connection" class="bm-btn">测试连接</button><button id="save-webdav-settings" class="bm-btn bm-btn-io">保存</button></div> </div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>选择一个云端备份进行恢复</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}">×</span></div> <ul id="${CONSTANTS.IDS.WEBDAV_BROWSER_LIST}"><li class="loading-text">正在加载备份列表...</li></ul> </div> </div>
-        <!-- [REFACTORED] 使用 template 标签来存放重复的 HTML 结构 -->
         <template id="${CONSTANTS.IDS.ROW_TEMPLATE}">
              <tr data-url-key="">
                 <td class="bm-name-cell"></td>
                 <td class="bm-url-cell"><a href="" target="_blank" title=""></a></td>
+                <td class="${CONSTANTS.CLASSES.TAG_CELL}"></td>
                 <td class="bm-actions-cell" style="text-align:center; white-space:nowrap;">
                     <button class="bm-btn bm-btn-pin ${CONSTANTS.CLASSES.PIN_BTN}">📌 置顶</button>
                     <button class="bm-btn ${CONSTANTS.CLASSES.RENAME_BTN}">✏️ 重命名</button>
@@ -135,6 +146,7 @@
   const autoSyncToggle = getEl(CONSTANTS.IDS.AUTO_SYNC_TOGGLE);
   const webdavBrowserList = getEl(CONSTANTS.IDS.WEBDAV_BROWSER_LIST);
   const rowTemplate = getEl(CONSTANTS.IDS.ROW_TEMPLATE);
+  const tagFilterContainer = getEl(CONSTANTS.IDS.TAG_FILTER_CONTAINER);
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = ".json";
@@ -156,7 +168,6 @@
     return `linuxdo-backup-${date}_${time}.json`;
   };
 
-  // [REFACTORED] 增强的 Toast 函数，支持动作按钮
   function showToast(message, options = {}) {
     const { isError = false, duration = 3000, actions = [] } = options;
     const toast = document.createElement("div");
@@ -188,15 +199,46 @@
     }, 10);
   }
 
-  // [REFACTORED] 使用 template 渲染表格，代码更清晰
-  function renderBookmarksTable(searchText = "") {
+  function renderTagFilters() {
     const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
-    const lowerCaseSearch = searchText.toLowerCase();
-    const filteredBookmarks = allBookmarks.filter(
-      (bm) =>
-        bm.name.toLowerCase().includes(lowerCaseSearch) ||
-        bm.url.toLowerCase().includes(lowerCaseSearch)
-    );
+    const allTags = new Set();
+    allBookmarks.forEach((bm) => bm.tags?.forEach((tag) => allTags.add(tag)));
+
+    tagFilterContainer.innerHTML = "";
+
+    const createButton = (text, tag) => {
+      const btn = document.createElement("button");
+      btn.textContent = text;
+      btn.className = CONSTANTS.CLASSES.TAG_FILTER_BTN;
+      btn.dataset.tag = tag === null ? "" : tag;
+      if (activeTagFilter === tag) {
+        btn.classList.add(CONSTANTS.CLASSES.TAG_ACTIVE);
+      }
+      return btn;
+    };
+
+    tagFilterContainer.appendChild(createButton("所有标签", null));
+    Array.from(allTags)
+      .sort()
+      .forEach((tag) => {
+        tagFilterContainer.appendChild(createButton(tag, tag));
+      });
+  }
+
+  function renderBookmarksTable() {
+    const searchText = searchInput.value.toLowerCase();
+    const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
+
+    const filteredBookmarks = allBookmarks.filter((bm) => {
+      const hasTag =
+        !activeTagFilter || (bm.tags && bm.tags.includes(activeTagFilter));
+      const hasText =
+        !searchText ||
+        bm.name.toLowerCase().includes(searchText) ||
+        bm.url.toLowerCase().includes(searchText) ||
+        (bm.tags && bm.tags.some((t) => t.toLowerCase().includes(searchText)));
+      return hasTag && hasText;
+    });
 
     if (filteredBookmarks.length === 0) {
       tableContainer.innerHTML =
@@ -210,19 +252,28 @@
 
     const table = document.createElement("table");
     table.id = CONSTANTS.IDS.TABLE;
-    table.innerHTML = `<thead><tr><th>名称</th><th>链接</th><th style="text-align:center;">操作</th></tr></thead>`;
+    table.innerHTML = `<thead><tr><th style="width: 40%;">名称</th><th style="width: 30%;">链接</th><th style="width: 15%;">标签</th><th style="width: 15%; text-align:center;">操作</th></tr></thead>`;
     const tbody = document.createElement("tbody");
 
     sortedBookmarks.forEach((bookmark) => {
       const row = rowTemplate.content.cloneNode(true).firstElementChild;
-      const urlKey = getRootTopicUrl(bookmark.url);
-      row.dataset.urlKey = urlKey;
+      row.dataset.urlKey = getRootTopicUrl(bookmark.url);
 
       row.querySelector(".bm-name-cell").textContent = bookmark.name;
       const link = row.querySelector(".bm-url-cell a");
       link.href = bookmark.url;
       link.textContent = bookmark.url;
       link.title = bookmark.url;
+
+      const tagCell = row.querySelector(`.${CONSTANTS.CLASSES.TAG_CELL}`);
+      if (bookmark.tags && bookmark.tags.length > 0) {
+        bookmark.tags.forEach((tag) => {
+          const pill = document.createElement("span");
+          pill.className = CONSTANTS.CLASSES.TAG_PILL;
+          pill.textContent = tag;
+          tagCell.appendChild(pill);
+        });
+      }
 
       const pinBtn = row.querySelector(`.${CONSTANTS.CLASSES.PIN_BTN}`);
       if (bookmark.pinned) {
@@ -250,7 +301,6 @@
     return result.bookmarks;
   }
 
-  // [REFACTORED] 无刷新进入编辑模式
   function enterEditMode(row) {
     const nameCell = row.querySelector(".bm-name-cell");
     const originalName = nameCell.textContent;
@@ -279,7 +329,6 @@
     };
   }
 
-  // [REFACTORED] 无刷新保存重命名
   function saveRename(row, newName) {
     if (!newName.trim()) {
       showToast("名称不能为空！", { isError: true });
@@ -291,12 +340,10 @@
       if (bookmark) bookmark.name = newName;
       return { bookmarks, changed: true };
     });
-    // 直接更新 DOM
-    renderBookmarksTable(searchInput.value); // 简单起见，暂时还是重绘
+    renderBookmarksTable();
     showToast("✅ 名称已更新！");
   }
 
-  // [REFACTORED] 无刷新切换置顶
   function togglePinBookmark(row) {
     const urlKey = row.dataset.urlKey;
     let status = "";
@@ -309,14 +356,12 @@
       return { bookmarks, changed: true };
     });
     showToast(`✅ 已${status}收藏`);
-    renderBookmarksTable(searchInput.value); // 置顶需要重排序，所以重绘是必要的
+    renderBookmarksTable();
   }
 
-  // [NEW] 带有撤销功能的删除
   function deleteBookmark(row) {
     if (undoState.timeoutId) {
       clearTimeout(undoState.timeoutId);
-      // 立即执行上一个删除
       modifyBookmarks((bookmarks) => {
         bookmarks.splice(undoState.index, 1);
         return { bookmarks, changed: true };
@@ -341,6 +386,7 @@
         return { bookmarks, changed: true };
       });
       undoState = { item: null, index: -1, timeoutId: null };
+      renderTagFilters(); // Update tags if the last item of a tag was deleted
     }, 4000);
 
     showToast("已删除", {
@@ -349,7 +395,6 @@
     });
   }
 
-  // [NEW] 撤销删除操作
   function undoDelete() {
     if (!undoState.item) return;
     clearTimeout(undoState.timeoutId);
@@ -361,8 +406,7 @@
       row.style.display = "";
       setTimeout(() => row.classList.remove(CONSTANTS.CLASSES.ROW_HIDING), 10);
     } else {
-      // 如果行不在当前视图（如被搜索过滤），则直接重绘
-      renderBookmarksTable(searchInput.value);
+      renderBookmarksTable();
     }
 
     undoState = { item: null, index: -1, timeoutId: null };
@@ -402,7 +446,7 @@
     URL.revokeObjectURL(url);
   }
 
-  // --- Part 4: WebDAV 核心功能 (基本保持不变，仅更新常量) ---
+  // --- Part 4: WebDAV 核心功能 ---
   function getWebDAVConfig(fromStorage = true) {
     const server = fromStorage
       ? GM_getValue(CONSTANTS.STORAGE_KEYS.WEBDAV_SERVER)
@@ -622,13 +666,21 @@
       }
       return { bookmarks, changed: dataChanged };
     });
-    renderBookmarksTable(searchInput.value);
+    renderBookmarksTable();
   }
 
   document.body.addEventListener("click", function (event) {
     const target = event.target;
-    const row = target.closest("tr");
 
+    if (target.classList.contains(CONSTANTS.CLASSES.TAG_FILTER_BTN)) {
+      const tag = target.dataset.tag === "" ? null : target.dataset.tag;
+      activeTagFilter = tag;
+      renderTagFilters();
+      renderBookmarksTable();
+      return;
+    }
+
+    const row = target.closest("tr");
     if (row && row.dataset.urlKey) {
       if (target.classList.contains(CONSTANTS.CLASSES.DELETE_BTN))
         deleteBookmark(row);
@@ -641,6 +693,8 @@
 
     const buttonActions = {
       "manage-bookmarks-button": () => {
+        activeTagFilter = null;
+        renderTagFilters();
         renderBookmarksTable();
         managerModal.style.display = "flex";
       },
@@ -686,9 +740,7 @@
     "change",
     (e) => e.target.files[0] && handleLocalImport(e.target.files[0])
   );
-  searchInput.addEventListener("input", () =>
-    renderBookmarksTable(searchInput.value)
-  );
+  searchInput.addEventListener("input", () => renderBookmarksTable());
   autoSyncToggle.addEventListener("change", (e) =>
     GM_setValue(CONSTANTS.STORAGE_KEYS.AUTO_SYNC, e.target.checked)
   );
@@ -707,40 +759,48 @@
     collectButton.className = "action-button";
     document.body.appendChild(collectButton);
 
-    // [REFACTORED] 非阻塞式收藏
     collectButton.addEventListener("click", () => {
       const postUrl = window.location.href;
-      const cleanTitle = document.title.replace(/\s*-\s*LINUX\s*DO\s*$/i, "");
+      const fullTitle = document.title.replace(/\s*-\s*LINUX\s*DO\s*$/i, "");
       const urlKey = getRootTopicUrl(postUrl);
+
+      let cleanTitle = fullTitle;
+      let tags = [];
+
+      const tagMatch = fullTitle.match(/\s*-\s*([^\-]+)$/);
+      if (tagMatch && tagMatch[1]) {
+        // 1. 获取原始的、完整的标签字符串
+        const rawTagString = tagMatch[1].trim();
+
+        // 2. 使用正则表达式 /[\/,]/ (匹配斜杠或逗号) 来分割字符串，并只取第一部分
+        const primaryTag = rawTagString.split(/[\/,]/)[0].trim();
+
+        // 3. 将处理后的主标签添加到数组
+        tags.push(primaryTag);
+
+        // 4. 从标题中移除整个原始标签部分
+        cleanTitle = fullTitle.replace(tagMatch[0], "").trim();
+      }
 
       const newBookmarks = modifyBookmarks((bookmarks) => {
         if (bookmarks.some((b) => getRootTopicUrl(b.url) === urlKey)) {
           showToast("该帖子已收藏，请勿重复添加！", { isError: true });
           return false;
         }
-        bookmarks.unshift({ name: cleanTitle, url: postUrl, pinned: false });
+        bookmarks.unshift({
+          name: cleanTitle,
+          url: postUrl,
+          pinned: false,
+          tags: tags,
+        });
         return { bookmarks, changed: true };
       });
 
       if (newBookmarks) {
-        showToast("✅ 收藏成功！", {
-          actions: [
-            {
-              text: "重命名",
-              onClick: () => {
-                renderBookmarksTable();
-                managerModal.style.display = "flex";
-                const row = getEl(CONSTANTS.IDS.TABLE)?.querySelector(
-                  `tr[data-url-key="${urlKey}"]`
-                );
-                if (row) enterEditMode(row);
-              },
-            },
-          ],
-        });
+        showToast("✅ 收藏成功！");
       }
     });
   }
 
-  console.log("超级收藏夹 (v4.0 专业重构版) 已加载！");
+  console.log("超级收藏夹 (v5.0 标签版) 已加载！");
 })();
