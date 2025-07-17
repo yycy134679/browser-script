@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name Linux.do 超级收藏夹 (专业版)
 // @namespace http://tampermonkey.net/
-// @version 3.9
-// @description [终极稳定版] 彻底修复按钮消失的严重问题。功能完整，包含版本化备份、云端浏览器、Toast提示、自动创建目录等所有功能。
-// @author Bin & Gemini & CHAI
+// @version 3.9.1
+// @description [终极稳定版] 新增特性：默认按最新收藏排序。彻底修复按钮消失的严重问题。功能完整，包含版本化备份、云端浏览器、Toast提示、自动创建目录等所有功能。
+// @author Bin & Gemini & CHAI & 高级编程助手
 // @match https://linux.do/*
 // @grant GM_setValue
 // @grant GM_getValue
@@ -136,7 +136,7 @@
       return;
     }
 
-    // 对收藏进行排序：置顶的在前，非置顶的在后，每组内部按原始顺序排序
+    // 排序：置顶的在前，其余按数组原有顺序（即最新收藏的在前）
     const sortedBookmarks = [...filteredBookmarks].sort((a, b) => {
       if ((a.pinned && b.pinned) || (!a.pinned && !b.pinned)) {
         return 0; // 保持原有顺序
@@ -455,7 +455,8 @@
         let addedCount = 0;
         newBookmarks.forEach((b) => {
           if (b.url && !currentUrls.has(getRootTopicUrl(b.url))) {
-            bookmarks.push(b);
+            // [MODIFIED] 使用 unshift 将新项目添加到数组开头，实现最新在最前
+            bookmarks.unshift(b);
             addedCount++;
           }
         });
@@ -564,12 +565,15 @@
             alert("该帖子已收藏，请勿重复添加！");
             return false;
           }
-          bookmarks.push({ name: customName, url: postUrl });
+          // [MODIFIED] 使用 unshift 将新项目添加到数组开头，实现最新在最前
+          bookmarks.unshift({ name: customName, url: postUrl });
           showToast("✅ 收藏成功！");
           return { bookmarks, changed: true };
         });
       }
     });
   }
-  console.log("超级收藏夹 (v3.9 增强版) 已加载！支持收藏置顶和更大面板！");
+  console.log(
+    "超级收藏夹 (v3.9.1 增强版) 已加载！支持最新收藏排序、置顶和更大面板！"
+  );
 })();
