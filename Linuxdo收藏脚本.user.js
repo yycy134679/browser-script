@@ -3,7 +3,6 @@
 // @namespace    http://tampermonkey.net/
 // @version      5.0
 // @description  [Major Feature] 新增标签系统！自动从标题提取标签，支持按标签筛选。UI全面升级，功能更强大。
-// @author       Bin & Gemini & CHAI & 高级编程助手
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -303,6 +302,8 @@
 
   function enterEditMode(row) {
     const nameCell = row.querySelector(".bm-name-cell");
+    if (nameCell.querySelector(`.${CONSTANTS.CLASSES.EDIT_INPUT}`)) return; // Already in edit mode
+
     const originalName = nameCell.textContent;
     nameCell.innerHTML = `<input type="text" class="${CONSTANTS.CLASSES.EDIT_INPUT}" value="${originalName}" style="width:100%; padding:5px; border-radius:4px; border:1px solid #DDD;">`;
 
@@ -314,18 +315,34 @@
     input.focus();
     input.select();
 
+    const handleBlur = () => {
+      saveRename(row, input.value);
+    };
+    input.addEventListener("blur", handleBlur);
+
     const cancelAction = () => {
+      input.removeEventListener("blur", handleBlur);
       nameCell.textContent = originalName;
       actionCell.innerHTML = originalButtons;
     };
 
-    row.querySelector(`.${CONSTANTS.CLASSES.SAVE_BTN}`).onclick = () =>
+    const saveAction = () => {
+      input.removeEventListener("blur", handleBlur);
       saveRename(row, input.value);
+    };
+
+    row.querySelector(`.${CONSTANTS.CLASSES.SAVE_BTN}`).onclick = saveAction;
     row.querySelector(`.${CONSTANTS.CLASSES.CANCEL_BTN}`).onclick =
       cancelAction;
+
     input.onkeydown = (e) => {
-      if (e.key === "Enter") saveRename(row, input.value);
-      if (e.key === "Escape") cancelAction();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveAction();
+      }
+      if (e.key === "Escape") {
+        cancelAction();
+      }
     };
   }
 
