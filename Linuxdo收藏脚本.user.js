@@ -66,7 +66,7 @@
   GM_addStyle(`
         .bm-modal-backdrop { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .bm-content-panel { background-color: #ffffff; border-radius: 12px; padding: 25px 30px; border: 1px solid #EAEAEA; width: 90%; box-shadow: 0 10px 25px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-        #${CONSTANTS.IDS.MANAGER_MODAL} .bm-content-panel { max-width: 1000px; }
+        #${CONSTANTS.IDS.MANAGER_MODAL} .bm-content-panel { max-width: 1300px; }
         .bm-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #EAEAEA; padding-bottom: 15px; margin-bottom: 20px; flex-shrink: 0; }
         .bm-header h2 { margin: 0; font-size: 22px; color: #333; }
         .bm-close-btn { color: #999; font-size: 32px; font-weight: bold; cursor: pointer; line-height: 1; transition: color 0.2s; margin-left: auto; }
@@ -305,7 +305,7 @@
     if (nameCell.querySelector(`.${CONSTANTS.CLASSES.EDIT_INPUT}`)) return; // Already in edit mode
 
     const originalName = nameCell.textContent;
-    nameCell.innerHTML = `<input type="text" class="${CONSTANTS.CLASSES.EDIT_INPUT}" value="${originalName}" style="width:100%; padding:5px; border-radius:4px; border:1px solid #DDD;">`;
+    nameCell.innerHTML = `<textarea class="${CONSTANTS.CLASSES.EDIT_INPUT}" style="width:100%; min-height:40px; max-height:120px; padding:8px; border-radius:4px; border:1px solid #DDD; font-family:inherit; font-size:inherit; resize:vertical; overflow-y:auto; line-height:1.4;">${originalName}</textarea>`;
 
     const actionCell = row.querySelector(".bm-actions-cell");
     const originalButtons = actionCell.innerHTML;
@@ -315,6 +315,14 @@
     input.focus();
     input.select();
 
+    // 自动调整 textarea 高度
+    const autoResize = () => {
+      input.style.height = "auto";
+      input.style.height = Math.min(input.scrollHeight, 120) + "px";
+    };
+    autoResize();
+    input.addEventListener("input", autoResize);
+
     const handleBlur = () => {
       saveRename(row, input.value);
     };
@@ -322,12 +330,14 @@
 
     const cancelAction = () => {
       input.removeEventListener("blur", handleBlur);
+      input.removeEventListener("input", autoResize);
       nameCell.textContent = originalName;
       actionCell.innerHTML = originalButtons;
     };
 
     const saveAction = () => {
       input.removeEventListener("blur", handleBlur);
+      input.removeEventListener("input", autoResize);
       saveRename(row, input.value);
     };
 
@@ -336,7 +346,7 @@
       cancelAction;
 
     input.onkeydown = (e) => {
-      if (e.key === "Enter") {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         saveAction();
       }
