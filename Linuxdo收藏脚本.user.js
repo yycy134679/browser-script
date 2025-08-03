@@ -781,12 +781,33 @@
 
   if (window.location.href.includes("linux.do/t/")) {
     const collectButton = document.createElement("button");
-    collectButton.textContent = "⭐ 收藏本页";
     collectButton.id = CONSTANTS.IDS.COLLECT_BUTTON;
     collectButton.className = "action-button";
+
+    // 检查当前页面是否已收藏
+    const currentUrl = window.location.href;
+    const currentUrlKey = getRootTopicUrl(currentUrl);
+    const bookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
+    const isBookmarked = bookmarks.some(
+      (b) => getRootTopicUrl(b.url) === currentUrlKey
+    );
+
+    if (isBookmarked) {
+      collectButton.textContent = "✅ 已收藏";
+      collectButton.style.opacity = "0.7";
+      collectButton.style.cursor = "default";
+    } else {
+      collectButton.textContent = "⭐ 收藏本页";
+    }
+
     document.body.appendChild(collectButton);
 
     collectButton.addEventListener("click", () => {
+      // 如果已收藏，则不执行任何操作
+      if (isBookmarked) {
+        return;
+      }
+
       const postUrl = window.location.href;
       const fullTitle = document.title.replace(/\s*-\s*LINUX\s*DO\s*$/i, "");
       const urlKey = getRootTopicUrl(postUrl);
@@ -825,6 +846,10 @@
 
       if (newBookmarks) {
         showToast("✅ 收藏成功！");
+        // 更新按钮状态
+        collectButton.textContent = "✅ 已收藏";
+        collectButton.style.opacity = "0.7";
+        collectButton.style.cursor = "default";
       }
     });
   }
