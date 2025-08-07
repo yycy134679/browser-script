@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Linux.do 超级收藏夹 (v5.0 标签版)
+// @name         Linux.do 超级收藏夹 (v5.2 分层标签版)
 // @namespace    http://tampermonkey.net/
-// @version      5.0
-// @description  [Major Feature] 新增标签系统！自动从标题提取标签，支持按标签筛选。UI全面升级，功能更强大。
+// @version      5.2
+// @description  [Enhanced Feature] 分层标签系统！第一行显示帖子自带标签，第二行显示用户自定义标签，标签管理更清晰。
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -32,6 +32,8 @@
       TABLE: "bookmarks-table",
       ROW_TEMPLATE: "bm-row-template",
       TAG_FILTER_CONTAINER: "bm-tag-filter-container", // [NEW]
+      TAG_FILTER_SECOND_ROW: "bm-tag-filter-second-row", // [NEW]
+      TAG_EDIT_INPUT: "bm-tag-edit-input", // [NEW]
       WEBDAV_TEST_RESULT: "webdav-test-result",
       AUTO_SYNC_TOGGLE: "auto-sync-toggle",
       WEBDAV_BROWSER_LIST: "webdav-browser-list",
@@ -55,6 +57,11 @@
       TAG_ACTIVE: "active", // [NEW]
       TAG_CELL: "bm-tag-cell", // [NEW]
       TAG_PILL: "bm-tag-pill", // [NEW]
+      TAG_EDIT_BTN: "bm-tag-edit-btn", // [NEW]
+      TAG_ADD_BTN: "bm-tag-add-btn", // [NEW]
+      TAG_REMOVE_BTN: "bm-tag-remove-btn", // [NEW]
+      TAG_SAVE_BTN: "bm-tag-save-btn", // [NEW]
+      TAG_CANCEL_BTN: "bm-tag-cancel-btn", // [NEW]
     },
     WEBDAV_DIR: "LinuxDoBookmarks/",
   };
@@ -107,16 +114,27 @@
         .${CONSTANTS.CLASSES.ROW_HIDING} { opacity: 0; transform: scale(0.95); }
         #${CONSTANTS.IDS.TABLE} tr { transition: opacity 0.3s ease, transform 0.3s ease; }
         /* [NEW] Tag Styles */
-        #${CONSTANTS.IDS.TAG_FILTER_CONTAINER} { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #EAEAEA; }
+        #${CONSTANTS.IDS.TAG_FILTER_CONTAINER} { display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #EAEAEA; }
+        #${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW} { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; border-top: 1px solid #EAEAEA; }
+        .tag-filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .${CONSTANTS.CLASSES.TAG_FILTER_BTN} { border: 1px solid #DDD; background-color: #FAFAFA; color: #555; padding: 5px 10px; border-radius: 15px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
         .${CONSTANTS.CLASSES.TAG_FILTER_BTN}.${CONSTANTS.CLASSES.TAG_ACTIVE} { background-color: #007AFF; color: white; border-color: #007AFF; }
-        .${CONSTANTS.CLASSES.TAG_PILL} { display: inline-block; background-color: #EFEFEF; color: #555; padding: 3px 8px; border-radius: 10px; font-size: 12px; margin-right: 5px; margin-bottom: 5px; }
+        .${CONSTANTS.CLASSES.TAG_PILL} { display: inline-block; background-color: #EFEFEF; color: #555; padding: 3px 8px; border-radius: 10px; font-size: 12px; margin-right: 5px; margin-bottom: 5px; position: relative; }
+        .${CONSTANTS.CLASSES.TAG_PILL}.editable { padding-right: 20px; }
+        .${CONSTANTS.CLASSES.TAG_REMOVE_BTN} { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #999; cursor: pointer; font-size: 10px; padding: 0; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+        .${CONSTANTS.CLASSES.TAG_REMOVE_BTN}:hover { background-color: #ff4444; color: white; }
+        .${CONSTANTS.CLASSES.TAG_EDIT_BTN} { background-color: #E8F5E8; color: #2E7D32; border: 1px solid #81C784; font-size: 12px; padding: 2px 6px; margin-left: 5px; }
+        .${CONSTANTS.CLASSES.TAG_ADD_BTN} { background-color: #E3F2FD; color: #1976D2; border: 1px solid #64B5F6; font-size: 12px; padding: 2px 6px; margin-left: 5px; }
+        .${CONSTANTS.IDS.TAG_EDIT_INPUT} { width: 120px; padding: 2px 6px; font-size: 12px; border: 1px solid #DDD; border-radius: 3px; margin-right: 5px; }
+        .tag-edit-mode { background-color: #F5F5F5; padding: 8px; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; line-height: 1.8; }
+        .tag-edit-mode br { width: 100%; margin: 4px 0; }
+        .${CONSTANTS.CLASSES.TAG_SAVE_BTN}, .${CONSTANTS.CLASSES.TAG_CANCEL_BTN} { font-size: 12px; padding: 2px 8px; }
     `);
 
   document.body.insertAdjacentHTML(
     "beforeend",
     `
-        <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
+        <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>WebDAV 云同步设置</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}">×</span></div> <div class="webdav-form-group"><label for="webdav-server">服务器地址:</label><input type="text" id="webdav-server" class="webdav-input" placeholder="例如: https://dav.jianguoyun.com/dav/"></div> <div class="webdav-form-group"><label for="webdav-user">用户名:</label><input type="text" id="webdav-user" class="webdav-input"></div> <div class="webdav-form-group"><label for="webdav-pass">应用密码 (非登录密码):</label><input type="password" id="webdav-pass" class="webdav-input"></div> <div class="webdav-form-group"><label><input type="checkbox" id="${CONSTANTS.IDS.AUTO_SYNC_TOGGLE}">当收藏变化时自动备份</label></div> <div class="webdav-footer"> <div id="${CONSTANTS.IDS.WEBDAV_TEST_RESULT}"></div> <div class="webdav-footer-buttons"><button id="test-webdav-connection" class="bm-btn">测试连接</button><button id="save-webdav-settings" class="bm-btn bm-btn-io">保存</button></div> </div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>选择一个云端备份进行恢复</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}">×</span></div> <ul id="${CONSTANTS.IDS.WEBDAV_BROWSER_LIST}"><li class="loading-text">正在加载备份列表...</li></ul> </div> </div>
         <template id="${CONSTANTS.IDS.ROW_TEMPLATE}">
@@ -127,6 +145,7 @@
                 <td class="bm-actions-cell" style="text-align:center; white-space:nowrap;">
                     <button class="bm-btn bm-btn-pin ${CONSTANTS.CLASSES.PIN_BTN}">📌 置顶</button>
                     <button class="bm-btn ${CONSTANTS.CLASSES.RENAME_BTN}">✏️ 重命名</button>
+                    <button class="bm-btn ${CONSTANTS.CLASSES.TAG_EDIT_BTN}">🏷️ 编辑标签</button>
                     <button class="bm-btn bm-btn-danger ${CONSTANTS.CLASSES.DELETE_BTN}">🗑️ 删除</button>
                 </td>
             </tr>
@@ -146,6 +165,8 @@
   const webdavBrowserList = getEl(CONSTANTS.IDS.WEBDAV_BROWSER_LIST);
   const rowTemplate = getEl(CONSTANTS.IDS.ROW_TEMPLATE);
   const tagFilterContainer = getEl(CONSTANTS.IDS.TAG_FILTER_CONTAINER);
+  const tagFilterFirstRow = getEl("tag-filter-first-row");
+  const tagFilterSecondRow = getEl(CONSTANTS.IDS.TAG_FILTER_SECOND_ROW);
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = ".json";
@@ -200,28 +221,69 @@
 
   function renderTagFilters() {
     const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
-    const allTags = new Set();
-    allBookmarks.forEach((bm) => bm.tags?.forEach((tag) => allTags.add(tag)));
+    const originalTags = new Set(); // 帖子自带的标签
+    const customTags = new Set(); // 用户自定义的标签
 
-    tagFilterContainer.innerHTML = "";
+    allBookmarks.forEach((bm) => {
+      // 帖子自带的标签（从 tags 数组获取）
+      bm.tags?.forEach((tag) => originalTags.add(tag));
+      // 用户自定义的标签（从 customTags 数组获取）
+      bm.customTags?.forEach((tag) => customTags.add(tag));
+    });
 
-    const createButton = (text, tag) => {
+    // 清空两行
+    tagFilterFirstRow.innerHTML = "";
+    tagFilterSecondRow.innerHTML = "";
+
+    const createButton = (text, tag, isCustom = false) => {
       const btn = document.createElement("button");
       btn.textContent = text;
       btn.className = CONSTANTS.CLASSES.TAG_FILTER_BTN;
       btn.dataset.tag = tag === null ? "" : tag;
+      btn.dataset.isCustom = isCustom;
       if (activeTagFilter === tag) {
         btn.classList.add(CONSTANTS.CLASSES.TAG_ACTIVE);
+      }
+      // 为用户自定义标签添加特殊样式
+      if (isCustom && tag !== null) {
+        btn.style.backgroundColor = "#E3F2FD";
+        btn.style.borderColor = "#64B5F6";
+        btn.style.color = "#1976D2";
       }
       return btn;
     };
 
-    tagFilterContainer.appendChild(createButton("所有标签", null));
-    Array.from(allTags)
-      .sort()
-      .forEach((tag) => {
-        tagFilterContainer.appendChild(createButton(tag, tag));
-      });
+    // 第一行：显示"所有标签"按钮 + 帖子自带的标签
+    tagFilterFirstRow.appendChild(createButton("所有标签", null));
+
+    if (originalTags.size > 0) {
+      Array.from(originalTags)
+        .sort()
+        .forEach((tag) => {
+          tagFilterFirstRow.appendChild(createButton(tag, tag, false));
+        });
+    }
+
+    // 第二行：显示用户自定义的标签
+    if (customTags.size > 0) {
+      // 添加分类标题
+      const customLabel = document.createElement("span");
+      customLabel.textContent = "自定义标签:";
+      customLabel.style.fontSize = "12px";
+      customLabel.style.color = "#666";
+      customLabel.style.marginRight = "8px";
+      customLabel.style.alignSelf = "center";
+      tagFilterSecondRow.appendChild(customLabel);
+
+      Array.from(customTags)
+        .sort()
+        .forEach((tag) => {
+          tagFilterSecondRow.appendChild(createButton(tag, tag, true));
+        });
+      tagFilterSecondRow.style.display = "flex";
+    } else {
+      tagFilterSecondRow.style.display = "none";
+    }
   }
 
   function renderBookmarksTable() {
@@ -230,12 +292,17 @@
 
     const filteredBookmarks = allBookmarks.filter((bm) => {
       const hasTag =
-        !activeTagFilter || (bm.tags && bm.tags.includes(activeTagFilter));
+        !activeTagFilter ||
+        (bm.tags && bm.tags.includes(activeTagFilter)) ||
+        (bm.customTags && bm.customTags.includes(activeTagFilter));
       const hasText =
         !searchText ||
         bm.name.toLowerCase().includes(searchText) ||
         bm.url.toLowerCase().includes(searchText) ||
-        (bm.tags && bm.tags.some((t) => t.toLowerCase().includes(searchText)));
+        (bm.tags &&
+          bm.tags.some((t) => t.toLowerCase().includes(searchText))) ||
+        (bm.customTags &&
+          bm.customTags.some((t) => t.toLowerCase().includes(searchText)));
       return hasTag && hasText;
     });
 
@@ -251,7 +318,7 @@
 
     const table = document.createElement("table");
     table.id = CONSTANTS.IDS.TABLE;
-    table.innerHTML = `<thead><tr><th style="width: 40%;">名称</th><th style="width: 30%;">链接</th><th style="width: 15%;">标签</th><th style="width: 15%; text-align:center;">操作</th></tr></thead>`;
+    table.innerHTML = `<thead><tr><th style="width: 35%;">名称</th><th style="width: 25%;">链接</th><th style="width: 15%;">标签</th><th style="width: 25%; text-align:center;">操作</th></tr></thead>`;
     const tbody = document.createElement("tbody");
 
     sortedBookmarks.forEach((bookmark) => {
@@ -265,11 +332,40 @@
       link.title = bookmark.url;
 
       const tagCell = row.querySelector(`.${CONSTANTS.CLASSES.TAG_CELL}`);
+
+      // 显示帖子自带的标签
       if (bookmark.tags && bookmark.tags.length > 0) {
         bookmark.tags.forEach((tag) => {
           const pill = document.createElement("span");
-          pill.className = CONSTANTS.CLASSES.TAG_PILL;
+          pill.className = `${CONSTANTS.CLASSES.TAG_PILL}`;
           pill.textContent = tag;
+          pill.style.backgroundColor = "#EFEFEF";
+          pill.style.color = "#555";
+          tagCell.appendChild(pill);
+        });
+      }
+
+      // 显示用户自定义的标签
+      if (bookmark.customTags && bookmark.customTags.length > 0) {
+        bookmark.customTags.forEach((tag) => {
+          const pill = document.createElement("span");
+          pill.className = `${CONSTANTS.CLASSES.TAG_PILL} editable`;
+          pill.textContent = tag;
+          pill.style.backgroundColor = "#E3F2FD";
+          pill.style.color = "#1976D2";
+          pill.style.borderLeft = "3px solid #64B5F6";
+
+          // 添加删除按钮（只有自定义标签可以删除）
+          const removeBtn = document.createElement("button");
+          removeBtn.className = CONSTANTS.CLASSES.TAG_REMOVE_BTN;
+          removeBtn.textContent = "×";
+          removeBtn.title = "删除自定义标签";
+          removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removeCustomTagFromBookmark(getRootTopicUrl(bookmark.url), tag);
+          };
+
+          pill.appendChild(removeBtn);
           tagCell.appendChild(pill);
         });
       }
@@ -298,6 +394,189 @@
     GM_setValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, result.bookmarks);
     if (result.changed) triggerAutoWebDAVSync();
     return result.bookmarks;
+  }
+
+  // 标签管理功能
+  function removeTagFromBookmark(urlKey, tagToRemove) {
+    modifyBookmarks((bookmarks) => {
+      const bookmark = bookmarks.find((b) => getRootTopicUrl(b.url) === urlKey);
+      if (bookmark && bookmark.tags) {
+        bookmark.tags = bookmark.tags.filter((tag) => tag !== tagToRemove);
+        if (bookmark.tags.length === 0) {
+          delete bookmark.tags;
+        }
+      }
+      return { bookmarks, changed: true };
+    });
+    renderBookmarksTable();
+    renderTagFilters();
+    showToast(`✅ 已删除标签: ${tagToRemove}`);
+  }
+
+  function removeCustomTagFromBookmark(urlKey, tagToRemove) {
+    modifyBookmarks((bookmarks) => {
+      const bookmark = bookmarks.find((b) => getRootTopicUrl(b.url) === urlKey);
+      if (bookmark && bookmark.customTags) {
+        bookmark.customTags = bookmark.customTags.filter(
+          (tag) => tag !== tagToRemove
+        );
+        if (bookmark.customTags.length === 0) {
+          delete bookmark.customTags;
+        }
+      }
+      return { bookmarks, changed: true };
+    });
+    renderBookmarksTable();
+    renderTagFilters();
+    showToast(`✅ 已删除自定义标签: ${tagToRemove}`);
+  }
+
+  function addTagToBookmark(urlKey, newTag) {
+    if (!newTag || !newTag.trim()) {
+      showToast("标签名称不能为空！", { isError: true });
+      return;
+    }
+
+    newTag = newTag.trim();
+
+    modifyBookmarks((bookmarks) => {
+      const bookmark = bookmarks.find((b) => getRootTopicUrl(b.url) === urlKey);
+      if (bookmark) {
+        if (!bookmark.customTags) {
+          bookmark.customTags = [];
+        }
+        // 检查是否与原生标签重复
+        if (bookmark.tags && bookmark.tags.includes(newTag)) {
+          showToast("该标签已存在于帖子标签中！", { isError: true });
+          return false;
+        }
+        // 检查是否与自定义标签重复
+        if (!bookmark.customTags.includes(newTag)) {
+          bookmark.customTags.push(newTag);
+          return { bookmarks, changed: true };
+        } else {
+          showToast("该自定义标签已存在！", { isError: true });
+          return false;
+        }
+      }
+      return false;
+    });
+    renderBookmarksTable();
+    renderTagFilters();
+    showToast(`✅ 已添加自定义标签: ${newTag}`);
+  }
+
+  function enterTagEditMode(row) {
+    const tagCell = row.querySelector(`.${CONSTANTS.CLASSES.TAG_CELL}`);
+    if (tagCell.querySelector(".tag-edit-mode")) return; // Already in edit mode
+
+    const urlKey = row.dataset.urlKey;
+    const bookmark = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []).find(
+      (b) => getRootTopicUrl(b.url) === urlKey
+    );
+
+    const originalTags = bookmark?.tags || [];
+    const customTags = bookmark?.customTags || [];
+
+    // 创建编辑模式的容器
+    const editContainer = document.createElement("div");
+    editContainer.className = "tag-edit-mode";
+
+    // 显示帖子自带的标签（只读显示）
+    if (originalTags.length > 0) {
+      const originalLabel = document.createElement("span");
+      originalLabel.textContent = "帖子标签: ";
+      originalLabel.style.fontSize = "12px";
+      originalLabel.style.color = "#666";
+      originalLabel.style.marginRight = "8px";
+      editContainer.appendChild(originalLabel);
+
+      originalTags.forEach((tag) => {
+        const pill = document.createElement("span");
+        pill.className = CONSTANTS.CLASSES.TAG_PILL;
+        pill.textContent = tag;
+        pill.style.backgroundColor = "#EFEFEF";
+        pill.style.color = "#555";
+        editContainer.appendChild(pill);
+      });
+
+      // 添加换行
+      editContainer.appendChild(document.createElement("br"));
+    }
+
+    // 显示自定义标签标题
+    const customLabel = document.createElement("span");
+    customLabel.textContent = "自定义标签: ";
+    customLabel.style.fontSize = "12px";
+    customLabel.style.color = "#1976D2";
+    customLabel.style.marginRight = "8px";
+    customLabel.style.fontWeight = "bold";
+    editContainer.appendChild(customLabel);
+
+    // 显示现有自定义标签
+    customTags.forEach((tag) => {
+      const pill = document.createElement("span");
+      pill.className = CONSTANTS.CLASSES.TAG_PILL;
+      pill.textContent = tag;
+      pill.style.backgroundColor = "#E3F2FD";
+      pill.style.color = "#1976D2";
+      pill.style.borderLeft = "3px solid #64B5F6";
+      editContainer.appendChild(pill);
+    });
+
+    // 添加输入框
+    const input = document.createElement("input");
+    input.className = CONSTANTS.IDS.TAG_EDIT_INPUT;
+    input.type = "text";
+    input.placeholder = "输入新的自定义标签...";
+    editContainer.appendChild(input);
+
+    // 添加按钮
+    const addBtn = document.createElement("button");
+    addBtn.className = `bm-btn ${CONSTANTS.CLASSES.TAG_ADD_BTN}`;
+    addBtn.textContent = "添加";
+    addBtn.onclick = () => {
+      const newTag = input.value.trim();
+      if (newTag) {
+        addTagToBookmark(urlKey, newTag);
+        exitTagEditMode(row);
+      }
+    };
+    editContainer.appendChild(addBtn);
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = `bm-btn ${CONSTANTS.CLASSES.TAG_SAVE_BTN}`;
+    saveBtn.textContent = "完成";
+    saveBtn.onclick = () => exitTagEditMode(row);
+    editContainer.appendChild(saveBtn);
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = `bm-btn ${CONSTANTS.CLASSES.TAG_CANCEL_BTN}`;
+    cancelBtn.textContent = "取消";
+    cancelBtn.onclick = () => exitTagEditMode(row);
+    editContainer.appendChild(cancelBtn);
+
+    // 替换内容
+    tagCell.innerHTML = "";
+    tagCell.appendChild(editContainer);
+
+    // 聚焦输入框
+    input.focus();
+
+    // 处理回车键
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addBtn.click();
+      }
+      if (e.key === "Escape") {
+        exitTagEditMode(row);
+      }
+    };
+  }
+
+  function exitTagEditMode(row) {
+    renderBookmarksTable(); // 重新渲染表格以退出编辑模式
   }
 
   function enterEditMode(row) {
@@ -713,6 +992,8 @@
         deleteBookmark(row);
       else if (target.classList.contains(CONSTANTS.CLASSES.RENAME_BTN))
         enterEditMode(row);
+      else if (target.classList.contains(CONSTANTS.CLASSES.TAG_EDIT_BTN))
+        enterTagEditMode(row);
       else if (target.classList.contains(CONSTANTS.CLASSES.PIN_BTN))
         togglePinBookmark(row);
       return;
@@ -854,5 +1135,5 @@
     });
   }
 
-  console.log("超级收藏夹 (v5.0 标签版) 已加载！");
+  console.log("超级收藏夹 (v5.2 分层标签版) 已加载！");
 })();
