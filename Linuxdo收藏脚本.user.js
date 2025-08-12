@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Linux.do 超级收藏夹 (v5.2 分层标签版)
+// @name         Linux.do 超级收藏夹 (v5.3 批量标签重命名版)
 // @namespace    http://tampermonkey.net/
-// @version      5.2
-// @description  [Enhanced Feature] 分层标签系统！第一行显示帖子自带标签，第二行显示用户自定义标签，标签管理更清晰。
+// @version      5.3
+// @description  [Enhanced Feature] 分层标签系统 + 一键批量重命名自定义标签（右键标签或使用批量重命名按钮）。
 // @match        https://linux.do/*
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -34,6 +34,7 @@
       TAG_FILTER_CONTAINER: "bm-tag-filter-container", // [NEW]
       TAG_FILTER_SECOND_ROW: "bm-tag-filter-second-row", // [NEW]
       TAG_EDIT_INPUT: "bm-tag-edit-input", // [NEW]
+      RENAME_TAGS_BUTTON: "rename-tags-btn", // [NEW]
       WEBDAV_TEST_RESULT: "webdav-test-result",
       AUTO_SYNC_TOGGLE: "auto-sync-toggle",
       WEBDAV_BROWSER_LIST: "webdav-browser-list",
@@ -134,7 +135,7 @@
   document.body.insertAdjacentHTML(
     "beforeend",
     `
-        <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
+  <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="${CONSTANTS.IDS.RENAME_TAGS_BUTTON}" class="bm-btn">🔁 批量重命名标签</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>WebDAV 云同步设置</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}">×</span></div> <div class="webdav-form-group"><label for="webdav-server">服务器地址:</label><input type="text" id="webdav-server" class="webdav-input" placeholder="例如: https://dav.jianguoyun.com/dav/"></div> <div class="webdav-form-group"><label for="webdav-user">用户名:</label><input type="text" id="webdav-user" class="webdav-input"></div> <div class="webdav-form-group"><label for="webdav-pass">应用密码 (非登录密码):</label><input type="password" id="webdav-pass" class="webdav-input"></div> <div class="webdav-form-group"><label><input type="checkbox" id="${CONSTANTS.IDS.AUTO_SYNC_TOGGLE}">当收藏变化时自动备份</label></div> <div class="webdav-footer"> <div id="${CONSTANTS.IDS.WEBDAV_TEST_RESULT}"></div> <div class="webdav-footer-buttons"><button id="test-webdav-connection" class="bm-btn">测试连接</button><button id="save-webdav-settings" class="bm-btn bm-btn-io">保存</button></div> </div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>选择一个云端备份进行恢复</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}">×</span></div> <ul id="${CONSTANTS.IDS.WEBDAV_BROWSER_LIST}"><li class="loading-text">正在加载备份列表...</li></ul> </div> </div>
         <template id="${CONSTANTS.IDS.ROW_TEMPLATE}">
@@ -394,6 +395,54 @@
     GM_setValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, result.bookmarks);
     if (result.changed) triggerAutoWebDAVSync();
     return result.bookmarks;
+  }
+
+  // 批量重命名自定义标签（将 oldTag -> newTag）
+  function bulkRenameCustomTag(oldTag, newTag) {
+    if (!oldTag || !newTag || oldTag === newTag) {
+      showToast("无效的标签重命名参数", { isError: true });
+      return;
+    }
+    let changedCount = 0;
+    modifyBookmarks((bookmarks) => {
+      bookmarks.forEach((bm) => {
+        if (bm.customTags && bm.customTags.includes(oldTag)) {
+          // 避免重复：如果 newTag 已存在，则仅删除 oldTag
+          if (bm.customTags.includes(newTag)) {
+            bm.customTags = bm.customTags.filter((t) => t !== oldTag);
+          } else {
+            bm.customTags = bm.customTags.map((t) =>
+              t === oldTag ? newTag : t
+            );
+          }
+          // 清空后删除字段
+          if (bm.customTags.length === 0) delete bm.customTags;
+          changedCount++;
+        }
+      });
+      return { bookmarks, changed: changedCount > 0 };
+    });
+    if (changedCount > 0) {
+      renderBookmarksTable();
+      renderTagFilters();
+      showToast(`✅ 已重命名 ${changedCount} 条中的自定义标签`);
+    } else {
+      showToast("未找到需要重命名的自定义标签", { isError: true });
+    }
+  }
+
+  // 通过 prompt 启动批量重命名流程
+  function startBulkRenameFlow(presetOldTag = "") {
+    const oldTag =
+      presetOldTag || prompt("请输入需要重命名的【旧自定义标签】(精确匹配)：");
+    if (!oldTag) return;
+    const newTag = prompt(`将自定义标签 "${oldTag}" 重命名为：`);
+    if (!newTag) return;
+    if (/[,/]/.test(newTag)) {
+      showToast("新标签中不允许包含逗号或斜杠", { isError: true });
+      return;
+    }
+    bulkRenameCustomTag(oldTag.trim(), newTag.trim());
   }
 
   // 标签管理功能
@@ -1032,6 +1081,7 @@
       "export-bookmarks-btn": handleLocalExport,
       "sync-from-cloud-btn": listWebDAVBackups,
       "sync-to-cloud-btn": () => uploadToWebDAV(false),
+      [CONSTANTS.IDS.RENAME_TAGS_BUTTON]: () => startBulkRenameFlow(),
     };
 
     if (buttonActions[target.id]) buttonActions[target.id]();
@@ -1048,6 +1098,25 @@
     "change",
     (e) => e.target.files[0] && handleLocalImport(e.target.files[0])
   );
+
+  // 右键自定义标签快速重命名
+  document.body.addEventListener("contextmenu", (e) => {
+    const pill = e.target.closest(`.${CONSTANTS.CLASSES.TAG_PILL}`);
+    if (
+      pill &&
+      pill.parentElement &&
+      pill.parentElement.classList.contains(CONSTANTS.CLASSES.TAG_CELL)
+    ) {
+      // 仅对自定义标签启用（蓝色，有 editable 类 或 具有删除按钮）
+      if (pill.classList.contains("editable")) {
+        e.preventDefault();
+        const oldTag =
+          pill.firstChild?.textContent ||
+          pill.textContent.replace(/×$/, "").trim();
+        if (oldTag) startBulkRenameFlow(oldTag);
+      }
+    }
+  });
   searchInput.addEventListener("input", () => renderBookmarksTable());
   autoSyncToggle.addEventListener("change", (e) =>
     GM_setValue(CONSTANTS.STORAGE_KEYS.AUTO_SYNC, e.target.checked)
@@ -1135,5 +1204,5 @@
     });
   }
 
-  console.log("超级收藏夹 (v5.2 分层标签版) 已加载！");
+  console.log("超级收藏夹 (v5.3 批量标签重命名版) 已加载！");
 })();
