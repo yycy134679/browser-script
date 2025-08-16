@@ -18,6 +18,7 @@
   const CONSTANTS = {
     STORAGE_KEYS: {
       BOOKMARKS: "linuxdo_bookmarks",
+      TRASH: "linuxdo_trash", // [NEW] 回收站
       WEBDAV_SERVER: "webdav_server",
       WEBDAV_USER: "webdav_user",
       WEBDAV_PASS: "webdav_pass",
@@ -35,6 +36,8 @@
       TAG_FILTER_SECOND_ROW: "bm-tag-filter-second-row", // [NEW]
       TAG_EDIT_INPUT: "bm-tag-edit-input", // [NEW]
       RENAME_TAGS_BUTTON: "rename-tags-btn", // [NEW]
+      TRASH_TOGGLE_BUTTON: "toggle-trash-btn", // [NEW]
+      EMPTY_TRASH_BUTTON: "empty-trash-btn", // [NEW]
       WEBDAV_TEST_RESULT: "webdav-test-result",
       AUTO_SYNC_TOGGLE: "auto-sync-toggle",
       WEBDAV_BROWSER_LIST: "webdav-browser-list",
@@ -43,6 +46,8 @@
     },
     CLASSES: {
       DELETE_BTN: "delete-btn",
+      RESTORE_BTN: "restore-btn", // [NEW]
+      PURGE_BTN: "purge-btn", // [NEW]
       RENAME_BTN: "rename-btn",
       SAVE_BTN: "save-btn",
       CANCEL_BTN: "cancel-btn",
@@ -69,6 +74,7 @@
 
   let undoState = { item: null, index: -1, timeoutId: null };
   let activeTagFilter = null; // [NEW] 用于存储当前激活的标签过滤器
+  let viewMode = "bookmarks"; // [NEW] 视图模式：bookmarks | trash
 
   // --- Part 1: 定义样式和 HTML ---
   GM_addStyle(`
@@ -135,7 +141,8 @@
   document.body.insertAdjacentHTML(
     "beforeend",
     `
-  <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="${CONSTANTS.IDS.RENAME_TAGS_BUTTON}" class="bm-btn">🔁 批量重命名标签</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> </div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
+  <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2 id="bm-header-title">超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="${CONSTANTS.IDS.RENAME_TAGS_BUTTON}" class="bm-btn">🔁 批量重命名标签</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> <button id="${CONSTANTS.IDS.TRASH_TOGGLE_BUTTON}" class="bm-btn bm-btn-danger">🗑️ 回收站</button> <button id="${CONSTANTS.IDS.EMPTY_TRASH_BUTTON}" class="bm-btn bm-btn-danger" style="display:none;">清空回收站</button></div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
+  <div id="${CONSTANTS.IDS.MANAGER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2 id="bm-header-title">超级收藏夹</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.MANAGER_MODAL}">×</span></div> <div class="controls-container"> <input type="text" id="${CONSTANTS.IDS.SEARCH_INPUT}" placeholder="搜索名称、链接、标签..."> <div class="controls-buttons"> <button id="sync-from-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 从云端同步</button> <button id="sync-to-cloud-btn" class="bm-btn bm-btn-cloud">☁️ 手动备份</button> <button id="import-bookmarks-btn" class="bm-btn bm-btn-io">📥 导入</button> <button id="export-bookmarks-btn" class="bm-btn bm-btn-io">📤 导出</button> <button id="${CONSTANTS.IDS.RENAME_TAGS_BUTTON}" class="bm-btn">🔁 批量重命名标签</button> <button id="webdav-settings-btn" class="bm-btn">⚙️ 云同步设置</button> <button id="${CONSTANTS.IDS.TRASH_TOGGLE_BUTTON}" class="bm-btn bm-btn-danger">🗑️ 回收站</button> <button id="${CONSTANTS.IDS.EMPTY_TRASH_BUTTON}" class="bm-btn bm-btn-danger" style="display:none;">清空回收站</button></div> </div> <div id="${CONSTANTS.IDS.TAG_FILTER_CONTAINER}"><div class="tag-filter-row" id="tag-filter-first-row"></div><div class="tag-filter-row" id="${CONSTANTS.IDS.TAG_FILTER_SECOND_ROW}"></div></div> <div id="${CONSTANTS.IDS.TABLE_CONTAINER}"></div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>WebDAV 云同步设置</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_SETTINGS_MODAL}">×</span></div> <div class="webdav-form-group"><label for="webdav-server">服务器地址:</label><input type="text" id="webdav-server" class="webdav-input" placeholder="例如: https://dav.jianguoyun.com/dav/"></div> <div class="webdav-form-group"><label for="webdav-user">用户名:</label><input type="text" id="webdav-user" class="webdav-input"></div> <div class="webdav-form-group"><label for="webdav-pass">应用密码 (非登录密码):</label><input type="password" id="webdav-pass" class="webdav-input"></div> <div class="webdav-form-group"><label><input type="checkbox" id="${CONSTANTS.IDS.AUTO_SYNC_TOGGLE}">当收藏变化时自动备份</label></div> <div class="webdav-footer"> <div id="${CONSTANTS.IDS.WEBDAV_TEST_RESULT}"></div> <div class="webdav-footer-buttons"><button id="test-webdav-connection" class="bm-btn">测试连接</button><button id="save-webdav-settings" class="bm-btn bm-btn-io">保存</button></div> </div> </div> </div>
         <div id="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}" class="${CONSTANTS.CLASSES.MODAL_BACKDROP}"> <div class="bm-content-panel"> <div class="bm-header"><h2>选择一个云端备份进行恢复</h2><span class="${CONSTANTS.CLASSES.CLOSE_BTN}" data-target-modal="${CONSTANTS.IDS.WEBDAV_BROWSER_MODAL}">×</span></div> <ul id="${CONSTANTS.IDS.WEBDAV_BROWSER_LIST}"><li class="loading-text">正在加载备份列表...</li></ul> </div> </div>
         <template id="${CONSTANTS.IDS.ROW_TEMPLATE}">
@@ -221,6 +228,12 @@
   }
 
   function renderTagFilters() {
+    // 在回收站视图隐藏标签筛选
+    if (viewMode === "trash") {
+      tagFilterContainer.style.display = "none";
+      return;
+    }
+    tagFilterContainer.style.display = "block";
     const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
     const originalTags = new Set(); // 帖子自带的标签
     const customTags = new Set(); // 用户自定义的标签
@@ -288,6 +301,10 @@
   }
 
   function renderBookmarksTable() {
+    if (viewMode === "trash") {
+      renderTrashTable();
+      return;
+    }
     const searchText = searchInput.value.toLowerCase();
     const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
 
@@ -388,6 +405,89 @@
     tableContainer.appendChild(table);
   }
 
+  // [NEW] 回收站渲染
+  function renderTrashTable() {
+    const searchText = searchInput.value.toLowerCase();
+    const allTrash = GM_getValue(CONSTANTS.STORAGE_KEYS.TRASH, []);
+
+    const filtered = allTrash.filter((bm) => {
+      const hasText =
+        !searchText ||
+        (bm.name && bm.name.toLowerCase().includes(searchText)) ||
+        (bm.url && bm.url.toLowerCase().includes(searchText)) ||
+        (bm.tags &&
+          bm.tags.some((t) => t.toLowerCase().includes(searchText))) ||
+        (bm.customTags &&
+          bm.customTags.some((t) => t.toLowerCase().includes(searchText)));
+      return hasText;
+    });
+
+    if (filtered.length === 0) {
+      tableContainer.innerHTML =
+        '<p style="text-align:center; color:#888; padding:20px 0;">回收站为空或没有匹配项。</p>';
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.id = CONSTANTS.IDS.TABLE;
+    table.innerHTML = `<thead><tr><th style="width: 35%;">名称</th><th style="width: 25%;">链接</th><th style="width: 15%;">标签</th><th style="width: 25%; text-align:center;">操作</th></tr></thead>`;
+    const tbody = document.createElement("tbody");
+
+    filtered.forEach((bm) => {
+      const tr = document.createElement("tr");
+      tr.dataset.urlKey = getRootTopicUrl(bm.url);
+      const nameTd = document.createElement("td");
+      nameTd.textContent = bm.name || "(无标题)";
+      const urlTd = document.createElement("td");
+      const a = document.createElement("a");
+      a.href = bm.url;
+      a.target = "_blank";
+      a.textContent = bm.url;
+      a.title = bm.url;
+      urlTd.appendChild(a);
+      const tagTd = document.createElement("td");
+      if (bm.tags)
+        bm.tags.forEach((t) => {
+          const s = document.createElement("span");
+          s.className = `${CONSTANTS.CLASSES.TAG_PILL}`;
+          s.textContent = t;
+          tagTd.appendChild(s);
+        });
+      if (bm.customTags)
+        bm.customTags.forEach((t) => {
+          const s = document.createElement("span");
+          s.className = `${CONSTANTS.CLASSES.TAG_PILL}`;
+          s.textContent = t;
+          s.style.backgroundColor = "#E3F2FD";
+          s.style.color = "#1976D2";
+          s.style.borderLeft = "3px solid #64B5F6";
+          tagTd.appendChild(s);
+        });
+      const actTd = document.createElement("td");
+      actTd.style.textAlign = "center";
+      actTd.style.whiteSpace = "nowrap";
+      const restoreBtn = document.createElement("button");
+      restoreBtn.className = `bm-btn bm-btn-restore ${CONSTANTS.CLASSES.RESTORE_BTN}`;
+      restoreBtn.textContent = "↩️ 恢复";
+      const purgeBtn = document.createElement("button");
+      purgeBtn.className = `bm-btn bm-btn-purge ${CONSTANTS.CLASSES.PURGE_BTN}`;
+      purgeBtn.style.marginLeft = "6px";
+      purgeBtn.textContent = "❌ 彻底删除";
+      actTd.appendChild(restoreBtn);
+      actTd.appendChild(purgeBtn);
+
+      tr.appendChild(nameTd);
+      tr.appendChild(urlTd);
+      tr.appendChild(tagTd);
+      tr.appendChild(actTd);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tableContainer.innerHTML = "";
+    tableContainer.appendChild(table);
+  }
+
   function modifyBookmarks(updateFunction) {
     let bookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
     const result = updateFunction(bookmarks);
@@ -395,6 +495,15 @@
     GM_setValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, result.bookmarks);
     if (result.changed) triggerAutoWebDAVSync();
     return result.bookmarks;
+  }
+
+  // [NEW] 回收站修改器
+  function modifyTrash(updateFunction) {
+    let trash = GM_getValue(CONSTANTS.STORAGE_KEYS.TRASH, []);
+    const result = updateFunction(trash);
+    if (result === false) return;
+    GM_setValue(CONSTANTS.STORAGE_KEYS.TRASH, result.trash);
+    return result.trash;
   }
 
   // 批量重命名自定义标签（将 oldTag -> newTag）
@@ -715,14 +824,6 @@
   }
 
   function deleteBookmark(row) {
-    if (undoState.timeoutId) {
-      clearTimeout(undoState.timeoutId);
-      modifyBookmarks((bookmarks) => {
-        bookmarks.splice(undoState.index, 1);
-        return { bookmarks, changed: true };
-      });
-    }
-
     const urlKey = row.dataset.urlKey;
     const allBookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
     const index = allBookmarks.findIndex(
@@ -730,42 +831,73 @@
     );
     if (index === -1) return;
 
-    undoState = { item: allBookmarks[index], index, timeoutId: null };
+    const item = allBookmarks[index];
+
+    // 从书签移除并移入回收站
+    modifyBookmarks((bookmarks) => {
+      bookmarks.splice(index, 1);
+      return { bookmarks, changed: true };
+    });
+    modifyTrash((trash) => {
+      // 避免重复添加
+      const exists = trash.some((t) => getRootTopicUrl(t.url) === urlKey);
+      if (!exists) trash.unshift({ ...item, deletedAt: Date.now() });
+      return { trash };
+    });
 
     row.classList.add(CONSTANTS.CLASSES.ROW_HIDING);
     setTimeout(() => (row.style.display = "none"), 300);
 
-    undoState.timeoutId = setTimeout(() => {
-      modifyBookmarks((bookmarks) => {
-        bookmarks.splice(index, 1);
-        return { bookmarks, changed: true };
-      });
-      undoState = { item: null, index: -1, timeoutId: null };
-      renderTagFilters(); // Update tags if the last item of a tag was deleted
-    }, 4000);
-
-    showToast("已删除", {
-      duration: 3800,
-      actions: [{ text: "撤销", onClick: undoDelete }],
+    renderTagFilters();
+    showToast("🗑️ 已移入回收站", {
+      actions: [
+        {
+          text: "撤销",
+          onClick: () => restoreFromTrash(urlKey, { showToastMsg: true }),
+        },
+      ],
     });
   }
 
-  function undoDelete() {
-    if (!undoState.item) return;
-    clearTimeout(undoState.timeoutId);
+  // [NEW] 从回收站恢复
+  function restoreFromTrash(urlKey, { showToastMsg = false } = {}) {
+    const trash = GM_getValue(CONSTANTS.STORAGE_KEYS.TRASH, []);
+    const idx = trash.findIndex((t) => getRootTopicUrl(t.url) === urlKey);
+    if (idx === -1) return;
+    const item = trash[idx];
 
-    const row = getEl(CONSTANTS.IDS.TABLE)?.querySelector(
-      `tr[data-url-key="${getRootTopicUrl(undoState.item.url)}"]`
-    );
-    if (row) {
-      row.style.display = "";
-      setTimeout(() => row.classList.remove(CONSTANTS.CLASSES.ROW_HIDING), 10);
-    } else {
-      renderBookmarksTable();
-    }
+    modifyTrash((t) => {
+      t.splice(idx, 1);
+      return { trash: t };
+    });
+    modifyBookmarks((bookmarks) => {
+      // 避免重复恢复
+      const exists = bookmarks.some((b) => getRootTopicUrl(b.url) === urlKey);
+      if (!exists) bookmarks.unshift({ ...item, deletedAt: undefined });
+      return { bookmarks, changed: true };
+    });
+    renderBookmarksTable();
+    renderTagFilters();
+    if (showToastMsg) showToast("✅ 已恢复到收藏");
+  }
 
-    undoState = { item: null, index: -1, timeoutId: null };
-    showToast("✅ 已撤销删除");
+  // [NEW] 彻底删除单条
+  function purgeFromTrash(urlKey) {
+    modifyTrash((trash) => {
+      const idx = trash.findIndex((t) => getRootTopicUrl(t.url) === urlKey);
+      if (idx !== -1) trash.splice(idx, 1);
+      return { trash };
+    });
+    renderTrashTable();
+    showToast("🗑️ 已彻底删除");
+  }
+
+  // [NEW] 清空回收站
+  function emptyTrash() {
+    if (!confirm("确认清空回收站？此操作不可恢复！")) return;
+    GM_setValue(CONSTANTS.STORAGE_KEYS.TRASH, []);
+    renderTrashTable();
+    showToast("🧹 回收站已清空");
   }
 
   function handleLocalImport(file) {
@@ -1045,14 +1177,16 @@
         enterTagEditMode(row);
       else if (target.classList.contains(CONSTANTS.CLASSES.PIN_BTN))
         togglePinBookmark(row);
+      else if (target.classList.contains(CONSTANTS.CLASSES.RESTORE_BTN))
+        restoreFromTrash(row.dataset.urlKey, { showToastMsg: true });
+      else if (target.classList.contains(CONSTANTS.CLASSES.PURGE_BTN))
+        purgeFromTrash(row.dataset.urlKey);
       return;
     }
 
     const buttonActions = {
       "manage-bookmarks-button": () => {
-        activeTagFilter = null;
-        renderTagFilters();
-        renderBookmarksTable();
+        setViewMode("bookmarks");
         managerModal.style.display = "flex";
       },
       "webdav-settings-btn": () => {
@@ -1082,6 +1216,10 @@
       "sync-from-cloud-btn": listWebDAVBackups,
       "sync-to-cloud-btn": () => uploadToWebDAV(false),
       [CONSTANTS.IDS.RENAME_TAGS_BUTTON]: () => startBulkRenameFlow(),
+      [CONSTANTS.IDS.TRASH_TOGGLE_BUTTON]: () => {
+        setViewMode(viewMode === "bookmarks" ? "trash" : "bookmarks");
+      },
+      [CONSTANTS.IDS.EMPTY_TRASH_BUTTON]: () => emptyTrash(),
     };
 
     if (buttonActions[target.id]) buttonActions[target.id]();
@@ -1205,4 +1343,27 @@
   }
 
   console.log("超级收藏夹 (v5.3 批量标签重命名版) 已加载！");
+
+  // [NEW] 视图切换
+  function setViewMode(mode) {
+    viewMode = mode;
+    const header = document.getElementById("bm-header-title");
+    const trashBtn = document.getElementById(CONSTANTS.IDS.TRASH_TOGGLE_BUTTON);
+    const emptyBtn = document.getElementById(CONSTANTS.IDS.EMPTY_TRASH_BUTTON);
+    const renameBtn = document.getElementById(CONSTANTS.IDS.RENAME_TAGS_BUTTON);
+    activeTagFilter = null;
+    if (viewMode === "trash") {
+      header && (header.textContent = "回收站");
+      trashBtn && (trashBtn.textContent = "← 返回收藏");
+      emptyBtn && (emptyBtn.style.display = "inline-block");
+      renameBtn && (renameBtn.style.display = "none");
+    } else {
+      header && (header.textContent = "超级收藏夹");
+      trashBtn && (trashBtn.textContent = "🗑️ 回收站");
+      emptyBtn && (emptyBtn.style.display = "none");
+      renameBtn && (renameBtn.style.display = "");
+    }
+    renderTagFilters();
+    renderBookmarksTable();
+  }
 })();
