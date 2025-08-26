@@ -4,6 +4,7 @@
 // @version      5.3
 // @description  [Enhanced Feature] 分层标签系统 + 一键批量重命名自定义标签（右键标签或使用批量重命名按钮）。
 // @match        https://linux.do/*
+// @exclude      https://linux.do/a/*
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_addStyle
@@ -1066,6 +1067,7 @@
           "application/xml"
         );
         const files = Array.from(xmlDoc.getElementsByTagName("d:href"))
+          .concat(Array.from(xmlDoc.getElementsByTagName("D:href")))
           .map((node) => node.textContent.split("/").pop())
           .filter(
             (name) =>
@@ -1261,85 +1263,116 @@
   );
 
   // --- Part 6: 页面按钮与初始化 ---
+
+  // [改动] 1. 将创建和更新"收藏"按钮的逻辑封装成一个独立的函数
+  function updateCollectButton() {
+    // a. 首先，移除可能已存在的旧"收藏"按钮，避免在页面切换时重复添加
+    const existingButton = document.getElementById(
+      CONSTANTS.IDS.COLLECT_BUTTON
+    );
+    if (existingButton) {
+      existingButton.remove();
+    }
+
+    // b. 只有在帖子页面 (/t/) 才创建按钮
+    if (window.location.href.includes("linux.do/t/")) {
+      const collectButton = document.createElement("button");
+      collectButton.id = CONSTANTS.IDS.COLLECT_BUTTON;
+      collectButton.className = "action-button";
+
+      // c. 检查当前页面的收藏状态
+      const currentUrl = window.location.href;
+      const currentUrlKey = getRootTopicUrl(currentUrl);
+      const bookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
+      const isBookmarked = bookmarks.some(
+        (b) => getRootTopicUrl(b.url) === currentUrlKey
+      );
+
+      // d. 根据收藏状态设置按钮的初始文本和样式
+      if (isBookmarked) {
+        collectButton.textContent = "✅ 已收藏";
+        collectButton.style.opacity = "0.7";
+        collectButton.style.cursor = "default";
+      } else {
+        collectButton.textContent = "⭐ 收藏本页";
+      }
+
+      document.body.appendChild(collectButton);
+
+      // e. 为按钮绑定点击事件
+      collectButton.addEventListener("click", () => {
+        // 如果已收藏，则不执行任何操作
+        if (
+          GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []).some(
+            (b) =>
+              getRootTopicUrl(b.url) === getRootTopicUrl(window.location.href)
+          )
+        ) {
+          return;
+        }
+
+        const postUrl = window.location.href;
+        const fullTitle = document.title.replace(/\s*-\s*LINUX\s*DO\s*$/i, "");
+        const urlKey = getRootTopicUrl(postUrl);
+
+        let cleanTitle = fullTitle;
+        let tags = [];
+
+        const tagMatch = fullTitle.match(/\s*-\s*([^\-]+)$/);
+        if (tagMatch && tagMatch[1]) {
+          const rawTagString = tagMatch[1].trim();
+          const primaryTag = rawTagString.split(/[\/,]/)[0].trim();
+          tags.push(primaryTag);
+          cleanTitle = fullTitle.replace(tagMatch[0], "").trim();
+        }
+
+        const newBookmarks = modifyBookmarks((bookmarks) => {
+          if (bookmarks.some((b) => getRootTopicUrl(b.url) === urlKey)) {
+            showToast("该帖子已收藏，请勿重复添加！", { isError: true });
+            return false;
+          }
+          bookmarks.unshift({
+            name: cleanTitle,
+            url: postUrl,
+            pinned: false,
+            tags: tags,
+          });
+          return { bookmarks, changed: true };
+        });
+
+        if (newBookmarks) {
+          showToast("✅ 收藏成功！");
+          // 收藏成功后，立即更新按钮状态
+          collectButton.textContent = "✅ 已收藏";
+          collectButton.style.opacity = "0.7";
+          collectButton.style.cursor = "default";
+        }
+      });
+    }
+  }
+
+  // "超级收藏夹"管理按钮（这个保持不变）
   const manageButton = document.createElement("button");
   manageButton.textContent = "🗂️ 超级收藏夹";
   manageButton.id = CONSTANTS.IDS.MANAGE_BUTTON;
   manageButton.className = "action-button";
   document.body.appendChild(manageButton);
 
-  if (window.location.href.includes("linux.do/t/")) {
-    const collectButton = document.createElement("button");
-    collectButton.id = CONSTANTS.IDS.COLLECT_BUTTON;
-    collectButton.className = "action-button";
+  // [改动] 2. 页面首次加载时，立即执行一次函数来创建按钮
+  updateCollectButton();
 
-    // 检查当前页面是否已收藏
-    const currentUrl = window.location.href;
-    const currentUrlKey = getRootTopicUrl(currentUrl);
-    const bookmarks = GM_getValue(CONSTANTS.STORAGE_KEYS.BOOKMARKS, []);
-    const isBookmarked = bookmarks.some(
-      (b) => getRootTopicUrl(b.url) === currentUrlKey
-    );
+  // [改动] 3. 创建一个 MutationObserver 来监听页面标题的变化
+  // 这是修复 SPA 页面切换 bug 的核心
+  const observer = new MutationObserver(() => {
+    // 当监听到变化（意味着可能切换了帖子），就重新调用函数来更新按钮状态
+    // 使用 setTimeout 做一个小的延迟，确保页面其他部分也已加载完毕
+    setTimeout(updateCollectButton, 200);
+  });
 
-    if (isBookmarked) {
-      collectButton.textContent = "✅ 已收藏";
-      collectButton.style.opacity = "0.7";
-      collectButton.style.cursor = "default";
-    } else {
-      collectButton.textContent = "⭐ 收藏本页";
-    }
-
-    document.body.appendChild(collectButton);
-
-    collectButton.addEventListener("click", () => {
-      // 如果已收藏，则不执行任何操作
-      if (isBookmarked) {
-        return;
-      }
-
-      const postUrl = window.location.href;
-      const fullTitle = document.title.replace(/\s*-\s*LINUX\s*DO\s*$/i, "");
-      const urlKey = getRootTopicUrl(postUrl);
-
-      let cleanTitle = fullTitle;
-      let tags = [];
-
-      const tagMatch = fullTitle.match(/\s*-\s*([^\-]+)$/);
-      if (tagMatch && tagMatch[1]) {
-        // 1. 获取原始的、完整的标签字符串
-        const rawTagString = tagMatch[1].trim();
-
-        // 2. 使用正则表达式 /[\/,]/ (匹配斜杠或逗号) 来分割字符串，并只取第一部分
-        const primaryTag = rawTagString.split(/[\/,]/)[0].trim();
-
-        // 3. 将处理后的主标签添加到数组
-        tags.push(primaryTag);
-
-        // 4. 从标题中移除整个原始标签部分
-        cleanTitle = fullTitle.replace(tagMatch[0], "").trim();
-      }
-
-      const newBookmarks = modifyBookmarks((bookmarks) => {
-        if (bookmarks.some((b) => getRootTopicUrl(b.url) === urlKey)) {
-          showToast("该帖子已收藏，请勿重复添加！", { isError: true });
-          return false;
-        }
-        bookmarks.unshift({
-          name: cleanTitle,
-          url: postUrl,
-          pinned: false,
-          tags: tags,
-        });
-        return { bookmarks, changed: true };
-      });
-
-      if (newBookmarks) {
-        showToast("✅ 收藏成功！");
-        // 更新按钮状态
-        collectButton.textContent = "✅ 已收藏";
-        collectButton.style.opacity = "0.7";
-        collectButton.style.cursor = "default";
-      }
-    });
+  // [改动] 4. 让观察者开始监视 <title> 元素的变化
+  const titleElement = document.querySelector("title");
+  if (titleElement) {
+    observer.observe(titleElement, { childList: true });
   }
 
   console.log("超级收藏夹 (v5.3 批量标签重命名版) 已加载！");
