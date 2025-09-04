@@ -4,11 +4,8 @@
 // @description  快速切换搜索引擎，搜索更方便
 // @author       Never7
 // @license      MIT
-// @match        *://www.baidu.com/s*
 // @match        *://www.google.com/*
 // @match        *://*.bing.com/*
-// @match        *://www.zhihu.com/search*
-// @match        *://search.bilibili.com/*
 // @grant        none
 // @run-at       document-end
 // @namespace https://greasyfork.org/users/870297
@@ -127,16 +124,30 @@
     },
   };
 
+  // 移除不需要的引擎，并新增 ChatGPT（仅作为跳转目标）
+  try {
+    delete searchEngines.baidu;
+    delete searchEngines.zhihu;
+    delete searchEngines.bilibili;
+  } catch (e) {}
+
+  // 新增 ChatGPT 引擎（在 Google/Bing 页面显示为可切换目标）
+  if (!searchEngines.chatgpt) {
+    searchEngines.chatgpt = {
+      icon: `
+<img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTqWuczWBDzJH0QhSUCkkzQ_fJq-gW5oOa8e3uYOQ5M0a7M66aAl9--IolMhZvDwMv5QM5LDCjQx73Iu_s1JLBAQARasDckVZKDtYEdSllDkg" alt="ChatGPT" />
+            `,
+      url: "https://chatgpt.com/?q=",
+    };
+  }
+
   /**
    * 根据当前 window.location.host 判断当前搜索引擎
    */
   function getCurrentEngine() {
     const host = window.location.host.toLowerCase();
-    if (host.includes("baidu.com")) return "baidu";
     if (host.includes("google.com")) return "google";
     if (host.includes("bing.com")) return "bing";
-    if (host.includes("zhihu.com")) return "zhihu";
-    if (host.includes("bilibili.com")) return "bilibili";
     return null;
   }
 
@@ -158,7 +169,16 @@
     const query = getCurrentQuery();
     if (query) {
       const newUrl = searchEngines[engineName].url + encodeURIComponent(query);
-      window.location.href = newUrl;
+      if (engineName === "chatgpt") {
+        const w = window.open(newUrl, "_blank");
+        if (w && !w.opener) {
+          try {
+            w.opener = null;
+          } catch (e) {}
+        }
+      } else {
+        window.location.href = newUrl;
+      }
     }
   }
 
@@ -207,13 +227,15 @@
                     #search-switcher .icon:hover {
                         transform: scale(1.3);
                     }
-                    #search-switcher .icon svg {
+                    #search-switcher .icon svg,
+                    #search-switcher .icon img {
                         width: 20px;
                         height: 20px;
                         opacity: 0.7;
                         transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
                     }
-                    #search-switcher .icon:hover svg {
+                    #search-switcher .icon:hover svg,
+                    #search-switcher .icon:hover img {
                         opacity: 1;
                         width: 26px;
                         height: 26px;
@@ -255,22 +277,6 @@
   // ----- 初始化函数 -----
   function init() {
     createSwitcher();
-
-    // 仅在百度搜索页面下使用 MutationObserver 监控 DOM 变化，并防抖后重新添加组件
-    if (getCurrentEngine() === "baidu") {
-      const debouncedCheck = debounce(() => {
-        const container = document.getElementById("search-switcher-container");
-        if (!container || !container.isConnected) {
-          createSwitcher();
-        }
-      }, DEBOUNCE_DELAY);
-
-      const observer = new MutationObserver(debouncedCheck);
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-      });
-    }
   }
 
   // ----- 启动脚本 -----
